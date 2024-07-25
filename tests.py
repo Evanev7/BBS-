@@ -31,3 +31,15 @@ print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messag
 
 assert(num_false_positives == 0)
 assert(num_false_negatives == 0)
+
+def user_join_sequence():
+    user = BBS.User()
+    gm = BBS.GM()
+
+    BBS.InsecureChannel.join(gm=gm, user=user)
+
+
+
+
+if __name__ == "__main__":
+    user_join_sequence()

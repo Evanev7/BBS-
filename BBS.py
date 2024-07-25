@@ -51,36 +51,35 @@ class Signature:
         self.A = A
         self.e = e
         self.s = s
-
+class Params:
+    def __init__(self, g, h, u):
+        self.g = g
+        self.h = h
+        self.u = u
 
 class TrustedPublicAuthority:
-    def GSetup(self, max_messages = 100) -> None:
-        seed = 91597
+    @staticmethod
+    def GSetup(max_messages = 100) -> Params:
         # our totally cryptographically secure hash function ===============================================
-        self.g = list(map(totally_secure_cryptographic_hash_1, range(seed, max_messages+2+seed)))
-        self.h = list(map(totally_secure_cryptographic_hash_2, range(seed, max_messages+2+seed)))
-        self.u = list(map(totally_secure_cryptographic_hash_3, range(seed, max_messages+2+seed)))
-    
-    GSetup()
-
+        g = list(map(totally_secure_cryptographic_hash_1, range(0, max_messages+2)))
+        h = list(map(totally_secure_cryptographic_hash_2, range(0, max_messages+2)))
+        u = list(map(totally_secure_cryptographic_hash_3, range(0, max_messages+2)))
+        return Params(g, h, u)
 
 
 class GM:
-    def __init__(self, max_messages = 10) -> None:
+    def __init__(self, params = TrustedPublicAuthority.GSetup(max_messages=100)) -> None:
         Reg = []
         self.GKGen()
-        
-        self.g = TrustedPublicAuthority.g
-        self.h = TrustedPublicAuthority.h
-        self.u = TrustedPublicAuthority.u
+        self.g = params.g
+        self.h = params.h
+        self.u = params.u
 
 
     def GKGen(self) -> None:
-        self.secret_key = randint(0,p) #====================================================================
+        self.secret_key = randint(0,p-1) #====================================================================
         self.public_key = mult(G2, self.secret_key)
     
-    def Join(self, user: User):
-        pass
     
     def sign(self, messageList: list[int]) -> Signature:
         salt_s = randint(0, p-1)
@@ -118,10 +117,51 @@ class GM:
 
     def write(self, entry, mpk) -> None:
         self.Reg.append((self.Reg.length(), entry, mpk))
+    
+    def join_1(self) -> int:
+        return len(self.Reg)
+    
+    def join_2(self, Cprime, proof) -> int:
+        #if verify(proof):
+        self.tempCprime = Cprime
+        self.tempsprimeprime = randint(0, p-1)
+        return self.tempsprimeprime
+
+    def join_3(self, entry, proof) -> int:
+        # if verify(proof):
+        C = self.tempCprime + self.tempsprimeprime * self.g[1]
+        salt_e = randint(0, p-1)
+        exp_inv = pow(salt_e + self.secret_key, -1, p)
+        A = exp_inv * (self.g[0] + C)
+        return (A, salt_e, self.tempsprimeprime) 
 
 class User:
-    def __init__(self) -> None:
-        self
+    def __init__(self, params = TrustedPublicAuthority.GSetup(max_messages=100)) -> None:
+        self.params = params
+        
+    
+    def join_1(self, id: int) -> tuple:
+        self.id = id
+        self.sprime = randint(0, p-1)
+        self.t = randint(0, p-1)
+        self.x = randint(0, p-1)
+        Cprime = self.sprime * self.params.g[1] + self.t * self.params.g[2] + self.x * self.params.g[3]
+        proof = 0 #======================================================================================
+        return Cprime, proof
+    
+    def join_2(self, sprimeprime: int) -> tuple:
+        self.s = self.sprime + sprimeprime
+        entry = (self.i, self.x * self.params.u[0])
+        proof = 0 #======================================================================================
+        return entry, proof
+
+    def join_3(self, A: int, e: int, sprimeprime: int, gm: GM): #GM here for public parameters.
+        term_3 = self.params.g[0] + self.s * self.params.g[1] + self.t * self.params.g[2] + self.x * self.params.g[3]
+        if pairing(A, gm.public_key + e * self.params.h[0]) != pairing(term_3, self.params.h[0]):
+            print("BADBADBAD") 
+            return
+        self.public_key = e
+        self.private_key = (A,self.s,self.t,self.x)
 
 
 class InsecureChannel:
@@ -130,4 +170,10 @@ class InsecureChannel:
 
 
     def join(gm: GM, user: User):
-        pass
+        user_id = gm.join_1()
+        Cprime, proof = user.join_1(user_id)
+        sprimeprime = gm.join_2(proof)
+        entry, proof_2 = user.join_2(sprimeprime)
+        (A,salt_e, sprimeprime) = gm.join_3(entry, proof_2)
+        user.join_3(A, )
+
