@@ -42,21 +42,19 @@ def test_message_signing(num_attempts, num_messages):
 
     return channel
 
-def user_join_sequence(num_users):
-    gm = BBS.GM()
+def user_join_sequence():
+    messages = [123,124,124152,11,1231,513]
+    disclosedMessages = [0,2,4]
+    params = BBS.TrustedPublicAuthority.GGen()
     channel = BBS.InsecureChannel()
-
-    for _ in range(num_users):
-        user = BBS.User()
-        channel.join(gm=gm, user=user)
-    
-    print(f"        {len(gm.Reg)} users successfully registered with GM")
-
-    # channel.leaked_data contains a reference to any data leaked in the insecure channel.
+    user = BBS.User(params)
+    gm = BBS.GM(params)
+    val = channel.partial_disclosure_proof(user, gm, messages, disclosedMessages)
+    print(val)
 
 
 
 
 if __name__ == "__main__":
     test_message_signing(num_attempts=num_attempts, num_messages=num_messages)
-#    user_join_sequence(num_users=num_users)
+    user_join_sequence()

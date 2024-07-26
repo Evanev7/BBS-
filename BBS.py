@@ -38,6 +38,11 @@ def totally_secure_cryptographic_hash(n, seed=612789):
     g_n = mult(G1, pow(seed + n + 1,-1,p))
     return g_n
 
+# Simplify a calculation
+def pedersen(params, messageList):
+    # return G1 + m0 * h0 + m1 * h1 + ...
+    return reduce(add, map(mult, params.h, messageList), G1)
+
 
 class Signature:
     def __init__(self, A,e):
@@ -63,7 +68,7 @@ class TrustedPublicAuthority:
         term_1 = add(public_key, mult(G2,signature.e))
 
         # Start off A with G1
-        term_4 = reduce(add, map(mult, params.h, messageList), G1) 
+        term_4 = pedersen(params, messageList)
 
         return pairing(term_1, signature.A) == pairing(G2, term_4)
 
@@ -80,7 +85,7 @@ class GM:
     
     def gm_sign(self, messageList) -> Signature:
         # C = G1 + m0 * h0 + m1 * h1 + ...
-        C = reduce(add, map(mult, self.params.h, messageList), G1)
+        C = pedersen(self.params, messageList)
         return self.sign(self, C)
 
     def sign(self, C) -> Signature:
@@ -108,6 +113,7 @@ class GM:
 class User:
     def __init__(self, params = TrustedPublicAuthority.GGen(max_messages=100)) -> None:
         self.params = params
+        self.sig = Signature(0,0)
         
     
     def compute_commitment(self, messageList: list[int]) -> int:
@@ -115,17 +121,59 @@ class User:
         C = reduce(add, map(mult, self.params.h, messageList), G1)
         return C
 
+    def create_nizk_proof(self, sig:Signature, messageList: list[int], disclosedIndices: list[int]):
+        privateMessageList = [messageList[i] for i in range(len(messageList)) if i not in disclosedIndices]
+        disclosedMessageList = [messageList[i] for i in disclosedIndices]
+        r = randint(1,p-1)
+        bar_A = mult(sig.A, r)
+        bar_B = mult(add(pedersen(self.params, messageList), mult(sig.A, -sig.e)), r)
+        alpha = randint(1,p-1)
+        beta = randint(1,p-1)
+        delta = [randint(1,p-1) for _ in range(len(privateMessageList))]
+        pre_U = add(mult(pedersen(self.params, privateMessageList),alpha),mult(bar_A, beta))
+        U = reduce(add, map(mult, self.params.h, delta), pre_U)
+        thing = disclosedMessageList
+        thing.extend([bar_A, bar_B, U])
+        c = totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
+        s = alpha + r * c
+        t = beta - sig.e * c
+        u = [delta[i] + r * privateMessageList[i] for i in range(len(delta))]
+        return (bar_A, bar_B, c, s, t, u)
+
 
 class InsecureChannel:
     def __init__(self) -> None:
         self.leaked_data = []
 
 
-    def user_sign(self, user: User, gm: GM, messageList):
+    def user_sign(self, user: User, gm: GM, messageList: list[int]):
         C = user.compute_commitment(messageList)
         sig = gm.sign(C)
 
         self.leaked_data.append([locals()])
+        return sig
 
-        return sig 
+    
+    def partial_disclosure_proof(self, user: User, gm: GM, messageList: list[int], disclosedIndices: list[int]):
+        sig = self.user_sign(user, gm, messageList)
+        proof = user.create_nizk_proof(sig, messageList, disclosedIndices)
+        disclosedMessageList = [messageList[i] for i in disclosedIndices]
+        proof_status = self.check_proof(proof, gm, disclosedMessageList)
+
+        
+        self.leaked_data.append([locals()])
+        return proof_status
+    
+    def check_proof(self, proof, gm: GM, disclosedMessageList: list[int]):
+        bar_A, bar_B, c, s, t, u = proof
+        pre_U = add(add(mult(bar_B, -c), mult(bar_A, t)), mult(pedersen(gm.params, disclosedMessageList), s))
+        U = reduce(add, map(mult, gm.params.h, u), pre_U)
+        thing = disclosedMessageList
+        thing.extend([bar_A, bar_B, U])
+        return all([
+            pairing(bar_A,  gm.public_key) == pairing(bar_B, G2),
+            c == totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
+        ])
+
+
 
