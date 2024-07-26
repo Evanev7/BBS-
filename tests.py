@@ -1,45 +1,58 @@
 from random import randint
 num_attempts = 200
 num_messages = 2000
+num_users = 1000
 
-num_true_positives = 0
-num_false_positives = 0
-num_true_negatives = 0
-num_false_negatives = 0
 
 import BBS
-for i in range(num_attempts):
-    gm = BBS.GM(max_messages=num_messages)
-    msgs = [randint(0,10000) for _ in range(num_messages)]
-    false_msgs = [randint(0,10000) for _ in range(num_messages)]
-    sig = gm.sign(msgs)
-    
-    if gm.verify(sig, msgs) == True:
-        num_true_positives += 1
-    else:
-        num_false_negatives += 1
-    if gm.verify(sig, false_msgs) == False:
-        num_true_negatives += 1
-    else:
-        num_false_negatives += 1
 
-print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messages
-      {num_true_positives} correctly verified
-      {num_false_positives} incorrectly verified
-      {num_true_negatives} correctly dismissed
-      {num_false_negatives} incorrectly dismissed""")
+def test_message_signing(num_attempts, num_messages):
+        
+    num_true_positives = 0
+    num_false_positives = 0
+    num_true_negatives = 0
+    num_false_negatives = 0
 
-assert(num_false_positives == 0)
-assert(num_false_negatives == 0)
+    params = BBS.TrustedPublicAuthority.GSetup(max_messages=num_messages)
+    for _ in range(num_attempts):
+        gm = BBS.GM(params=params)
+        msgs = [randint(0,10000) for _ in range(num_messages)]
+        false_msgs = [randint(0,10000) for _ in range(num_messages)]
+        sig = gm.sign(msgs)
+        
+        if gm.verify(sig, msgs) == True:
+            num_true_positives += 1
+        else:
+            num_false_negatives += 1
+        if gm.verify(sig, false_msgs) == False:
+            num_true_negatives += 1
+        else:
+            num_false_negatives += 1 
 
-def user_join_sequence():
-    user = BBS.User()
+    print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messages
+        {num_true_positives} correctly verified
+        {num_false_positives} incorrectly verified
+        {num_true_negatives} correctly dismissed
+        {num_false_negatives} incorrectly dismissed""")
+
+    assert(num_false_positives == 0)
+    assert(num_false_negatives == 0)
+
+def user_join_sequence(num_users):
     gm = BBS.GM()
+    channel = BBS.InsecureChannel()
 
-    BBS.InsecureChannel.join(gm=gm, user=user)
+    for _ in range(num_users):
+        user = BBS.User()
+        channel.join(gm=gm, user=user)
+    
+    print(f"{len(gm.Reg)} users successfully registered with GM")
+
+    # channel.leaked_data contains a reference to any data leaked in the insecure channel.
 
 
 
 
 if __name__ == "__main__":
-    user_join_sequence()
+    test_message_signing(num_attempts=num_attempts, num_messages=num_messages)
+    user_join_sequence(num_users=num_users)

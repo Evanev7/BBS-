@@ -69,7 +69,7 @@ class TrustedPublicAuthority:
 
 class GM:
     def __init__(self, params = TrustedPublicAuthority.GSetup(max_messages=100)) -> None:
-        Reg = []
+        self.Reg = []
         self.GKGen()
         self.g = params.g
         self.h = params.h
@@ -115,9 +115,17 @@ class GM:
         return pairing(term_1, signature.A) == pairing(G2, term_4)
 
 
-    def write(self, entry, mpk) -> None:
-        self.Reg.append((self.Reg.length(), entry, mpk))
-    
+    def _write(self, entry, mpk) -> None:
+        self.Reg.append((len(self.Reg), entry, mpk))
+
+    def _generate_invertible_salt(self) -> tuple[int, int]:
+        for i in range(RETRY_LIMIT):
+            salt_e = randint(0,p-1)
+            exp_inv = pow(salt_e + self.secret_key, -1, p)
+            return salt_e, exp_inv
+        raise ValueError(f"No salt found in {RETRY_LIMIT} attempts.")
+
+
     def join_1(self) -> int:
         return len(self.Reg)
     
@@ -130,9 +138,10 @@ class GM:
     def join_3(self, entry, proof) -> int:
         # if verify(proof):
         C = self.tempCprime + self.tempsprimeprime * self.g[1]
-        salt_e = randint(0, p-1)
-        exp_inv = pow(salt_e + self.secret_key, -1, p)
+        salt_e, exp_inv = self._generate_invertible_salt()
         A = exp_inv * (self.g[0] + C)
+
+        self._write(entry, salt_e)
         return (A, salt_e, self.tempsprimeprime) 
 
 class User:
@@ -151,29 +160,30 @@ class User:
     
     def join_2(self, sprimeprime: int) -> tuple:
         self.s = self.sprime + sprimeprime
-        entry = (self.i, self.x * self.params.u[0])
+        entry = (self.id, self.x * self.params.u[0])
         proof = 0 #======================================================================================
         return entry, proof
 
     def join_3(self, A: int, e: int, sprimeprime: int, gm: GM): #GM here for public parameters.
         term_3 = self.params.g[0] + self.s * self.params.g[1] + self.t * self.params.g[2] + self.x * self.params.g[3]
-        if pairing(A, gm.public_key + e * self.params.h[0]) != pairing(term_3, self.params.h[0]):
-            print("BADBADBAD") 
-            return
+        if pairing(A, gm.public_key + e * G2) != pairing(term_3, G2):
+            raise ValueError("Invalid personal signature received.")
         self.public_key = e
         self.private_key = (A,self.s,self.t,self.x)
 
 
 class InsecureChannel:
     def __init__(self) -> None:
-        pass
+        self.leaked_data = []
 
 
-    def join(gm: GM, user: User):
+    def join(self, gm: GM, user: User):
         user_id = gm.join_1()
         Cprime, proof = user.join_1(user_id)
-        sprimeprime = gm.join_2(proof)
+        sprimeprime = gm.join_2(Cprime, proof)
         entry, proof_2 = user.join_2(sprimeprime)
         (A,salt_e, sprimeprime) = gm.join_3(entry, proof_2)
-        user.join_3(A, )
+        user.join_3(A, salt_e, sprimeprime, gm)
+
+        self.leaked_data.append([locals()])
 
