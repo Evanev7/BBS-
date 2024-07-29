@@ -35,9 +35,13 @@ def pairing(a,b):
 
 
 # Used to sample random elements from G1.
-def totally_secure_cryptographic_hash(n, seed=612789):
+def totally_secure_cryptographic_hash(n, seed=612789) -> int:
     g_n = mult(G1, pow(seed + n + 1,-1,p))
     return g_n
+
+def sample_hash(k, init, seed=571890) -> list[int]:
+    return (totally_secure_cryptographic_hash(init+i, seed=seed) for i in range(k))
+
 
 # Simplify a calculation
 def pedersen(filtered_h, filtered_message_list, /, init=G1):
@@ -60,7 +64,7 @@ class TrustedPublicAuthority:
     def GGen(max_messages = 100) -> Params:
         # our totally cryptographically secure hash function ===============================================
         
-        h = list(map(totally_secure_cryptographic_hash, range(0, max_messages+2)))
+        h = list(map(totally_secure_cryptographic_hash, range(0, max_messages+3)))
         return Params(h)
 
     @staticmethod
@@ -84,20 +88,23 @@ class GM:
         self.secret_key = randint(1,p-1) #====================================================================
         self.public_key = mult(G2, self.secret_key)
     
+
     def gm_sign(self, messageList) -> Signature:
         # C = G1 + m0 * h0 + m1 * h1 + ...
         C = pedersen(self.params.h, messageList)
         return self.sign(self, C)
+
 
     def sign(self, C) -> Signature:
         salt_e, exp_inv = self._generate_invertible_salt()
          
         # A = C * 1/(SK+e)
         A = mult(C, exp_inv)
+
         # Validation. Failed on py_ecc
         assert(C == mult(A, salt_e + self.secret_key))
 
-        return Signature(A, salt_e) 
+        return Signature(A, salt_e)
 
 
     def _generate_invertible_salt(self) -> tuple[int, int]:
@@ -112,69 +119,68 @@ class GM:
         raise ValueError(f"No salt found in {RETRY_LIMIT} attempts.")
 
 class User:
-    def __init__(self, params = TrustedPublicAuthority.GGen(max_messages=100)) -> None:
-        self.params = params
-        self.sig = Signature(0,0)
-        
+    def __init__(self, gm: GM, messageList: list[int]) -> None:
+        self.params = gm.params
+        self.messageList = messageList
+        self.get_cert(gm)
     
+
+    def get_cert(self, gm: GM):
+        self.secret_key = randint(1,p-1)
+        self.sig = gm.sign(self.compute_commitment([self.secret_key, *self.messageList]))
+    
+
     def compute_commitment(self, messageList: list[int]) -> int:
         # C = G1 + m0 * h0 + m1 * h1 + ...
-        C = pedersen(self.params.h, messageList)
-        return C
+        return pedersen(self.params.h, messageList)
 
-    def create_nizk_proof(self, sig:Signature, messageList: list[int], publicIndices: list[int]):
+
+    def create_nizk_proof(self, publicIndices: list[int]):
         # Convenience calculations
-        privateIndices = [i for i in range(len(messageList)) if i not in publicIndices]
-        privateMessageList = [messageList[i] for i in privateIndices]
-        publicMessageList = [messageList[i] for i in publicIndices]
+        msgs = self.messageList
+        privateIndices = [i for i in range(len(msgs)) if i not in publicIndices]
+        privateMessageList = [msgs[i] for i in privateIndices]
+        publicMessageList = [msgs[i] for i in publicIndices]
         private_h = [self.params.h[i] for i in privateIndices]
         public_h = [self.params.h[i] for i in publicIndices]
 
         # Actual computation
-        r = randint(1,p-1)
-        bar_A = mult(sig.A, r)
-        bar_B = add(mult(pedersen(self.params.h, messageList), r),mult(bar_A, -sig.e))
-        alpha = randint(1,p-1)
-        beta = randint(1,p-1)
-        delta = [randint(1,p-1) for _ in privateIndices]
+        random_oracle = sample_hash(len(privateIndices) + 3, self.secret_key)
+        r = next(random_oracle)
+        bar_A = mult(self.sig.A, r)
+        bar_B = add(mult(pedersen(self.params.h, msgs), r),mult(bar_A, -self.sig.e))
+        alpha = next(random_oracle)
+        beta = next(random_oracle)
+        delta = [next(random_oracle) for _ in privateIndices]
         pre_U = add(mult(pedersen(public_h, publicMessageList),alpha),mult(bar_A, beta))
         U = add(pedersen(private_h, delta, init=0), pre_U)
         thing = publicMessageList
         thing.extend([bar_A, bar_B, U])
         c = totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
         s = alpha + r * c
-        t = beta - sig.e * c
+        t = beta - self.sig.e * c
         u = [delta[i] + r * privateMessageList[i] * c for i in range(len(delta))]
         return (bar_A, bar_B, c, s, t, u)
+
 
 
 class InsecureChannel:
     def __init__(self) -> None:
         self.leaked_data = []
 
-
-    def user_sign(self, user: User, gm: GM, messageList: list[int]):
-        C = user.compute_commitment(messageList)
-        sig = gm.sign(C)
-
-        self.leaked_data.append([locals()])
-        return sig
-
     
-    def partial_disclosure_proof(self, user: User, gm: GM, sig, messageList: list[int], publicIndices: list[int]):
-        proof = user.create_nizk_proof(sig, messageList, publicIndices)
-        publicMessageList = [messageList[i] for i in publicIndices]
+    def partial_disclosure_proof(self, user: User, gm: GM, publicMessageList: list[int], publicIndices: list[int]):
+        proof = user.create_nizk_proof(publicIndices)
         proof_status = self.check_proof(proof, gm, publicMessageList, publicIndices)
-
         
-        self.leaked_data.append([locals()])
         return proof_status
     
+
     def check_proof(self, proof, gm: GM, publicMessageList: list[int], publicIndices):
         bar_A, bar_B, c, s, t, u = proof
 
         # Convenience calculations
-        total_messages = len(u)+ len(publicIndices)
+        total_messages = len(u) + len(publicIndices)
         privateIndices = [i for i in range(total_messages) if i not in publicIndices]
         private_h = [gm.params.h[i] for i in privateIndices]
         public_h = [gm.params.h[i] for i in publicIndices]
@@ -184,10 +190,10 @@ class InsecureChannel:
         U = add(pedersen(private_h, u, init=0), pre_U)
         thing = publicMessageList
         thing.extend([bar_A, bar_B, U])
+
+        self.leaked_data.append([locals()])
         return all([
             pairing(bar_A,  gm.public_key) == pairing(bar_B, G2),
             c == totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
         ])
-
-
-
+    

@@ -19,34 +19,35 @@ def test_message_signing(num_attempts, num_messages):
     params = BBS.TrustedPublicAuthority.GGen(max_messages=num_messages)
     for _ in range(num_attempts):
         gm = BBS.GM(params=params)
-        user = BBS.User(params=params)
-        channel = BBS.InsecureChannel()
         msgs = [randint(0,10000) for _ in range(num_messages)]
+        user = BBS.User(gm, msgs)
+        channel = BBS.InsecureChannel()
         false_msgs = [randint(0,10000) for _ in range(num_messages)]
-        sig = channel.user_sign(user, gm, msgs)
         
-        disclosed_msgs = {randint(0, num_messages-2) for _ in range(num_attempts)}
-        if channel.partial_disclosure_proof(user, gm, sig, msgs, disclosed_msgs):
+        disclosed_msgs = {randint(0, num_messages-1) for _ in range(randint(0,num_messages))}
+        if channel.partial_disclosure_proof(user, gm, msgs, disclosed_msgs):
             num_passed_true_proofs += 1
-        if not channel.partial_disclosure_proof(user, gm, sig, false_msgs, disclosed_msgs):
+        if not channel.partial_disclosure_proof(user, gm, msgs, disclosed_msgs):
             num_failed_false_proofs += 1
+        
 
-        if BBS.TrustedPublicAuthority.verify(params, gm.public_key, sig, msgs) == True:
+        if BBS.TrustedPublicAuthority.verify(params, gm.public_key, user.sig, msgs) == True: #[user.secret_key, *msgs]) == True:
             num_true_positives += 1
         else:
             num_false_negatives += 1
-        if BBS.TrustedPublicAuthority.verify(params, gm.public_key, sig, false_msgs) == False:
+        if BBS.TrustedPublicAuthority.verify(params, gm.public_key, user.sig, false_msgs) == False: #[user.secret_key, *false_msgs]) == False:
             num_true_negatives += 1
         else:
-            num_false_negatives += 1 
+            num_false_positives += 1 
+        break
 
     print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messages
-        {num_true_positives} correctly verified
-        {num_false_positives} incorrectly verified
-        {num_true_negatives} correctly dismissed
-        {num_false_negatives} incorrectly dismissed
         {num_passed_true_proofs} correctly validated proofs
-        {num_failed_false_proofs} correctly dismissed proofs""")
+        {num_failed_false_proofs} correctly dismissed proofs
+        {num_true_positives} correctly verified
+        {num_false_negatives} incorrectly dismissed
+        {num_true_negatives} correctly dismissed
+        {num_false_positives} incorrectly verified""")
 
     assert(num_false_positives == 0)
     assert(num_false_negatives == 0)
