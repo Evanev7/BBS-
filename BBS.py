@@ -68,10 +68,10 @@ class TrustedPublicAuthority:
         # compute w + e*G2 = (SK+e)*G2
         term_1 = add(public_key, mult(G2,signature.e))
 
-        # Start off A with G1
+        # compute G1 + h0 m0 + h1 m1 + ...
         term_4 = pedersen(params.h, messageList)
 
-        return pairing(term_1, signature.A) == pairing(G2, term_4)
+        return add(pairing(term_1, signature.A), pairing(-G2, term_4)) == 0
 
 
 class GM:

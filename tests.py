@@ -56,17 +56,22 @@ def test_message_signing(num_attempts, num_messages):
 
 def user_join_sequence():
     messages = [123,124,124152,11,1231,513]
-    disclosedMessages = [0,2,4]
+    disclosedMessages = []
     params = BBS.TrustedPublicAuthority.GGen()
     channel = BBS.InsecureChannel()
     user = BBS.User(params)
     gm = BBS.GM(params)
-    val = channel.partial_disclosure_proof(user, gm, messages, disclosedMessages)
+    sig = channel.user_sign(user, gm, messages)
+    val = channel.partial_disclosure_proof(user, gm, sig, messages, disclosedMessages)
+    print(channel.leaked_data)
+    print("special case", val)
     
 
+def fixed_value_test():
+    pass
 
 
 
 if __name__ == "__main__":
     test_message_signing(num_attempts=num_attempts, num_messages=num_messages)
-    #user_join_sequence()
+    user_join_sequence()
