@@ -14,9 +14,10 @@ p = 5243587517512619047944774050818596583769055250052763782260365869993858118451
 G1 = 1
 G2 = 1
 
+# realistically I should go through and highlight where we are using group mult vs modular arithmetic, so this is a drag-and-drop for group operations.
 def mult(a,b):
     return (a*b) % p
-def add(a,b):
+def add(a,b, *args):
     return (a+b) % p
 def pairing(a,b):
     return (a*b) % p
@@ -39,9 +40,9 @@ def totally_secure_cryptographic_hash(n, seed=612789):
     return g_n
 
 # Simplify a calculation
-def pedersen(params, messageList):
+def pedersen(filtered_h, filtered_message_list, /, init=G1):
     # return G1 + m0 * h0 + m1 * h1 + ...
-    return reduce(add, map(mult, params.h, messageList), G1)
+    return reduce(add, map(mult, filtered_h, filtered_message_list), init)
 
 
 class Signature:
@@ -68,7 +69,7 @@ class TrustedPublicAuthority:
         term_1 = add(public_key, mult(G2,signature.e))
 
         # Start off A with G1
-        term_4 = pedersen(params, messageList)
+        term_4 = pedersen(params.h, messageList)
 
         return pairing(term_1, signature.A) == pairing(G2, term_4)
 
@@ -85,7 +86,7 @@ class GM:
     
     def gm_sign(self, messageList) -> Signature:
         # C = G1 + m0 * h0 + m1 * h1 + ...
-        C = pedersen(self.params, messageList)
+        C = pedersen(self.params.h, messageList)
         return self.sign(self, C)
 
     def sign(self, C) -> Signature:
@@ -118,26 +119,32 @@ class User:
     
     def compute_commitment(self, messageList: list[int]) -> int:
         # C = G1 + m0 * h0 + m1 * h1 + ...
-        C = reduce(add, map(mult, self.params.h, messageList), G1)
+        C = pedersen(self.params.h, messageList)
         return C
 
-    def create_nizk_proof(self, sig:Signature, messageList: list[int], disclosedIndices: list[int]):
-        privateMessageList = [messageList[i] for i in range(len(messageList)) if i not in disclosedIndices]
-        disclosedMessageList = [messageList[i] for i in disclosedIndices]
+    def create_nizk_proof(self, sig:Signature, messageList: list[int], publicIndices: list[int]):
+        # Convenience calculations
+        privateIndices = [i for i in range(len(messageList)) if i not in publicIndices]
+        privateMessageList = [messageList[i] for i in privateIndices]
+        publicMessageList = [messageList[i] for i in publicIndices]
+        private_h = [self.params.h[i] for i in privateIndices]
+        public_h = [self.params.h[i] for i in publicIndices]
+
+        # Actual computation
         r = randint(1,p-1)
         bar_A = mult(sig.A, r)
-        bar_B = mult(add(pedersen(self.params, messageList), mult(sig.A, -sig.e)), r)
+        bar_B = add(mult(pedersen(self.params.h, messageList), r),mult(bar_A, -sig.e))
         alpha = randint(1,p-1)
         beta = randint(1,p-1)
-        delta = [randint(1,p-1) for _ in range(len(privateMessageList))]
-        pre_U = add(mult(pedersen(self.params, privateMessageList),alpha),mult(bar_A, beta))
-        U = reduce(add, map(mult, self.params.h, delta), pre_U)
-        thing = disclosedMessageList
+        delta = [randint(1,p-1) for _ in privateIndices]
+        pre_U = add(mult(pedersen(public_h, publicMessageList),alpha),mult(bar_A, beta))
+        U = add(pedersen(private_h, delta, init=0), pre_U)
+        thing = publicMessageList
         thing.extend([bar_A, bar_B, U])
         c = totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
         s = alpha + r * c
         t = beta - sig.e * c
-        u = [delta[i] + r * privateMessageList[i] for i in range(len(delta))]
+        u = [delta[i] + r * privateMessageList[i] * c for i in range(len(delta))]
         return (bar_A, bar_B, c, s, t, u)
 
 
@@ -154,21 +161,28 @@ class InsecureChannel:
         return sig
 
     
-    def partial_disclosure_proof(self, user: User, gm: GM, messageList: list[int], disclosedIndices: list[int]):
-        sig = self.user_sign(user, gm, messageList)
-        proof = user.create_nizk_proof(sig, messageList, disclosedIndices)
-        disclosedMessageList = [messageList[i] for i in disclosedIndices]
-        proof_status = self.check_proof(proof, gm, disclosedMessageList)
+    def partial_disclosure_proof(self, user: User, gm: GM, sig, messageList: list[int], publicIndices: list[int]):
+        proof = user.create_nizk_proof(sig, messageList, publicIndices)
+        publicMessageList = [messageList[i] for i in publicIndices]
+        proof_status = self.check_proof(proof, gm, publicMessageList, publicIndices)
 
         
         self.leaked_data.append([locals()])
         return proof_status
     
-    def check_proof(self, proof, gm: GM, disclosedMessageList: list[int]):
+    def check_proof(self, proof, gm: GM, publicMessageList: list[int], publicIndices):
         bar_A, bar_B, c, s, t, u = proof
-        pre_U = add(add(mult(bar_B, -c), mult(bar_A, t)), mult(pedersen(gm.params, disclosedMessageList), s))
-        U = reduce(add, map(mult, gm.params.h, u), pre_U)
-        thing = disclosedMessageList
+
+        # Convenience calculations
+        total_messages = len(u)+ len(publicIndices)
+        privateIndices = [i for i in range(total_messages) if i not in publicIndices]
+        private_h = [gm.params.h[i] for i in privateIndices]
+        public_h = [gm.params.h[i] for i in publicIndices]
+
+        # Actual computation
+        pre_U = add(add(mult(bar_B, -c), mult(bar_A, t)), mult(pedersen(public_h, publicMessageList), s))
+        U = add(pedersen(private_h, u, init=0), pre_U)
+        thing = publicMessageList
         thing.extend([bar_A, bar_B, U])
         return all([
             pairing(bar_A,  gm.public_key) == pairing(bar_B, G2),
