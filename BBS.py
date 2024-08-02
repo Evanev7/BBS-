@@ -122,7 +122,6 @@ class GM:
 class User:
     def __init__(self, params = TrustedPublicAuthority.GGen(max_messages=100)) -> None:
         self.params = params
-        self.sig = Signature(0,0)
         
     
     def compute_commitment(self, messageList: list[int]) -> int:
