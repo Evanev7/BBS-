@@ -17,7 +17,7 @@ G2 = 1
 # realistically I should go through and highlight where we are using group mult vs modular arithmetic, so this is a drag-and-drop for group operations.
 def mult(a,b):
     return (a*b) % p
-def add(a,b, *args):
+def add(a,b):
     return (a+b) % p
 def pairing(a,b):
     return (a*b) % p
@@ -38,6 +38,10 @@ def pairing(a,b):
 def totally_secure_cryptographic_hash(n, seed=612789):
     g_n = mult(G1, pow(seed + n + 1,-1,p))
     return g_n
+
+def totally_secre_multi_hash(args: list, /, seed: int = 1231):
+    return totally_secure_cryptographic_hash(reduce(add, args), seed=seed) 
+
 
 def sample_hash(k, init, seed=571890) -> list[int]:
     return (totally_secure_cryptographic_hash(init+i, seed=seed) for i in range(k))
@@ -147,7 +151,7 @@ class User:
         U = add(pedersen(private_h, delta, init=0), pre_U)
         thing = publicMessageList
         thing.extend([bar_A, bar_B, U])
-        c = totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
+        c = totally_secre_multi_hash(thing, seed=238198421)
         s = alpha + r * c
         t = beta - sig.e * c
         u = [delta[i] + r * privateMessageList[i] * c for i in range(len(privateIndices))]
@@ -191,7 +195,7 @@ class InsecureChannel:
         thing.extend([bar_A, bar_B, U])
         return all([
             pairing(bar_A,  gm.public_key) == pairing(bar_B, G2),
-            c == totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
+            c == totally_secre_multi_hash(thing, seed=238198421)
         ])
 
 
