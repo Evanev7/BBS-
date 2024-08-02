@@ -38,15 +38,15 @@ def test_message_signing(num_attempts, num_messages):
         if BBS.TrustedPublicAuthority.verify(params, gm.public_key, sig, false_msgs) == False:
             num_true_negatives += 1
         else:
-            num_false_negatives += 1 
+            num_false_positives += 1 
         
         
 
     print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messages
         {num_true_positives} correctly verified
-        {num_false_positives} incorrectly verified
-        {num_true_negatives} correctly dismissed
         {num_false_negatives} incorrectly dismissed
+        {num_true_negatives} correctly dismissed
+        {num_false_positives} incorrectly verified
         {num_passed_true_proofs} correctly validated proofs
         {num_failed_false_proofs} correctly dismissed proofs""")
 
