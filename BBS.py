@@ -39,6 +39,10 @@ def totally_secure_cryptographic_hash(n, seed=612789):
     g_n = mult(G1, pow(seed + n + 1,-1,p))
     return g_n
 
+def sample_hash(k, init, seed=571890) -> list[int]:
+    return (totally_secure_cryptographic_hash(init+i, seed=seed) for i in range(k))
+
+
 # Simplify a calculation
 def pedersen(filtered_h, filtered_message_list, /, init=G1):
     # return G1 + m0 * h0 + m1 * h1 + ...
@@ -124,19 +128,21 @@ class User:
 
     def create_nizk_proof(self, sig:Signature, messageList: list[int], publicIndices: list[int]):
         # Convenience calculations
-        privateIndices = [i for i in range(len(messageList)) if i not in publicIndices]
-        privateMessageList = [messageList[i] for i in privateIndices]
-        publicMessageList = [messageList[i] for i in publicIndices]
+        msgs = messageList
+        privateIndices = [i for i in range(len(msgs)) if i not in publicIndices]
+        privateMessageList = [msgs[i] for i in privateIndices]
+        publicMessageList = [msgs[i] for i in publicIndices]
         private_h = [self.params.h[i] for i in privateIndices]
         public_h = [self.params.h[i] for i in publicIndices]
 
         # Actual computation
-        r = randint(1,p-1)
+        random_oracle = sample_hash(len(privateIndices) + 3, 1)
+        r = next(random_oracle)
         bar_A = mult(sig.A, r)
-        bar_B = add(mult(pedersen(self.params.h, messageList), r),mult(bar_A, -sig.e))
-        alpha = randint(1,p-1)
-        beta = randint(1,p-1)
-        delta = [randint(1,p-1) for _ in privateIndices]
+        bar_B = add(mult(pedersen(self.params.h, msgs), r),mult(bar_A, -sig.e))
+        alpha = next(random_oracle)
+        beta = next(random_oracle)
+        delta = [next(random_oracle) for _ in privateIndices]
         pre_U = add(mult(pedersen(public_h, publicMessageList),alpha),mult(bar_A, beta))
         U = add(pedersen(private_h, delta, init=0), pre_U)
         thing = publicMessageList
@@ -144,9 +150,8 @@ class User:
         c = totally_secure_cryptographic_hash(reduce(add, thing), seed=238198421)
         s = alpha + r * c
         t = beta - sig.e * c
-        u = [delta[i] + r * privateMessageList[i] * c for i in range(len(delta))]
+        u = [delta[i] + r * privateMessageList[i] * c for i in range(len(privateIndices))]
         return (bar_A, bar_B, c, s, t, u)
-
 
 class InsecureChannel:
     def __init__(self) -> None:

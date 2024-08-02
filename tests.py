@@ -39,6 +39,8 @@ def test_message_signing(num_attempts, num_messages):
             num_true_negatives += 1
         else:
             num_false_negatives += 1 
+        
+        
 
     print(f"""      {num_attempts} test runs over {num_attempts*num_messages} messages
         {num_true_positives} correctly verified
@@ -63,7 +65,7 @@ def user_join_sequence():
     gm = BBS.GM(params)
     sig = channel.user_sign(user, gm, messages)
     val = channel.partial_disclosure_proof(user, gm, sig, messages, disclosedMessages)
-    print(channel.leaked_data)
+    # print(channel.leaked_data)
     print("special case", val)
     
 
